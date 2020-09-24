@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from scipy import optimize
 from camera.clients.data_tools.process_image import process_images_g
 from camera.clients.data_tools.process_image import process_images_g_fluorescence
+from matplotlib.offsetbox import AnchoredText
 
 import sys
 sys.path.insert(1, 'C:\\LabRad\\SrData\\data\\notebooks\\data_tools')
@@ -12,12 +13,12 @@ from helper import process_units
 
 PROJECT_DATA_PATH = os.path.join(os.getenv('LABRADDATA'), 'data')
 
-exp_name = 'lattice_trap_freq_modulation'
+exp_name = 'lattice_hold_image'
     
 def fit_Gaussian(x, x0, w, amp, const):
     return amp * np.exp(-pow(x - x0, 2)/(2*pow(w, 2))) + const
 
-def process_lattice_trap_freq_modulation_ccd(settings):
+def process_lattice_hold_image_ccd(settings):
     shot = settings['shot']
     roi_center = settings['kwargs']['roi_center']
     roi_width = settings['kwargs']['roi_width']
@@ -36,30 +37,30 @@ def process_lattice_trap_freq_modulation_ccd(settings):
             os.makedirs(save_folder)
             
         conductor_json_path = data_folder + '\\{}'.format(shot) + '.conductor.json'
-        tcam_hdf5_path = data_folder + '\\{}'.format(shot) + '.{}.hdf5'.format(method)
-        
-        try:
-            f = open(conductor_json_path, 'r')
-            f1 = f.read()
+        ccd_hdf5_path = data_folder + '\\{}'.format(shot) + '.{}.hdf5'.format(method)
+                        
+        with open(conductor_json_path, 'r') as file:
+            f1 = file.read()
             f2 = json.loads(f1)
-            freq = f2['lattice.ModulationFrequency']
-            try:
-                em_gain = f2['andor.record_path']['em_gain']
-            except:
-                em_gain = 1
+        try:
+            em_gain = f2['andor.record_path']['em_gain']
+        except:
+            em_gain = 1
             
+        try:
             images = {}
-            with h5py.File(tcam_hdf5_path, 'r') as images_h5:
+            with h5py.File(ccd_hdf5_path, 'r') as images_h5:
                 for key in images_h5:
                     images[key] = np.array(images_h5[key], dtype = 'float64')
                 images_h5.close()
-        
+            
             if image == 'absorption':
                 n0 = process_images_g(images, em_gain)
                 
-                xc = roi_center[0]
-                yc = n0.shape[1] -roi_center[1]
-                n = n0[xc - roi_width: xc + roi_width, yc - roi_width: yc + roi_width]
+                xc = n0.shape[1] -roi_center[1]
+                yc = roi_center[0]
+                n = n0[yc - roi_width: yc + roi_width, xc - roi_width: xc + roi_width]
+                
                 x_trace0 = np.sum(n, axis = 0)
                 y_trace0 = np.sum(n, axis = 1)
                 X = range(n.shape[1])
@@ -71,9 +72,10 @@ def process_lattice_trap_freq_modulation_ccd(settings):
             elif image == 'fluorescence':
                 n0 = process_images_g_fluorescence(images)
                 
-                xc = roi_center[0]
-                yc = n0.shape[1] -roi_center[1]
-                n = n0[xc - roi_width: xc + roi_width, yc - roi_width: yc + roi_width]
+                xc = n0.shape[1] -roi_center[1]
+                yc = roi_center[0]
+                n = n0[yc - roi_width: yc + roi_width, xc - roi_width: xc + roi_width]
+                
                 x_trace0 = np.sum(n, axis = 0)
                 y_trace0 = np.sum(n, axis = 1)
                 X = range(n.shape[1])
@@ -81,21 +83,25 @@ def process_lattice_trap_freq_modulation_ccd(settings):
                 count = np.sum(n)
                 
                 count = round(float(count), 1)
-            
+                
             fig, ax = plt.subplots(1, 1)
             fig.set_size_inches(20, 8)
-            
+        
             cmap = plt.get_cmap('jet')
             ax.set_aspect('equal')
+            # X = range(n0.shape[1])
+            # Y = range(n0.shape[0])
             plt.pcolormesh(X, Y, n, cmap = cmap)
             ax.set_xlim(0, n.shape[1])
             ax.set_ylim(0, n.shape[0])
-            # plt.legend()
+            # plt.plot(X, x_trace0/max(x_trace0)*roi_width, c = 'yellow', label = 'x_trace')
+            # plt.plot(y_trace0/max(y_trace0)*roi_width, Y, c = 'yellow', label = 'y_trace')
+            plt.legend()
             plt.colorbar()
             plt.title('Atom number: {:.2e}'.format(count))
-            
+                
             plt.savefig(save_path + '.png', bbox_inches='tight')
-            
+                
             plt.clf()
             plt.close('all')
         
@@ -103,15 +109,13 @@ def process_lattice_trap_freq_modulation_ccd(settings):
             print(e)
             count = 0
             
-        data.append({'shot': shot, x_key:freq, 'fit': {y_key: count}})
+        data.append({'shot': shot, 'fit': {y_key: count}})
         return  data
     
-            
     else:
         return data
 
-def plot_lattice_trap_freq_modulation_ccd(data, settings):
-    # print(data)
+def plot_lattice_hold_image_ccd(data, settings):
 
     units = settings['kwargs']['units']
     data_range = settings['kwargs']['data_range']
@@ -119,7 +123,6 @@ def plot_lattice_trap_freq_modulation_ccd(data, settings):
     y_label = settings['kwargs']['y_label']
     x_key = settings['kwargs']['x_key']
     y_key = settings['kwargs']['y_key']
-    sorted_key = settings['kwargs']['sorted_key']
     
     result_folder = os.path.join(PROJECT_DATA_PATH, settings['data_path'], 'result')
     result_path = os.path.join(result_folder, os.path.split(settings['data_path'])[0] + '_' + os.path.split(settings['data_path'])[1])
@@ -128,10 +131,15 @@ def plot_lattice_trap_freq_modulation_ccd(data, settings):
     if not os.path.isdir(result_folder):
         os.makedirs(result_folder)
     
-    # sort by x_key
-    sorted_data = sorted(data, key = lambda k:k[sorted_key])
-    x_data = [i[x_key] for i in sorted_data ]
-    y_data = [i['fit'][y_key] for i in sorted_data ]
+    # sort by shot number
+    sorted_data = sorted(data, key = lambda k:k['shot'])
+    x_data = [i[x_key] for i in sorted_data if min(data_range) < i['fit'][y_key] < max(data_range) ]
+    y_data = [i['fit'][y_key] for i in sorted_data if min(data_range) < i['fit'][y_key] < max(data_range)]
+    
+    mean = np.mean(y_data)
+    mean = round(float(mean), 1)
+    std = np.std(y_data)
+    std = round(float(std), 1)
     
     with open(saved_data_path, 'w') as file:
         file.write(json.dumps(sorted_data))
@@ -143,22 +151,23 @@ def plot_lattice_trap_freq_modulation_ccd(data, settings):
         
     ax.plot(x_data, y_data)
     ax.plot(x_data, y_data, 'ro')
-    
     ax.set_ylabel(y_label)
-    ax.set_xlabel(x_label + ' ({})'.format(units))
+    ax.set_xlabel(x_label + ' [{}]'.format(units))
+    anchored_text = AnchoredText('mean = {}, std = {}'.format(mean, std) , loc=2)
+    ax.add_artist(anchored_text)
     # max_point = max([max(l.get_ydata()) for l in ax.get_lines()])
     # min_point = min([min(l.get_ydata()) for l in ax.get_lines()])
     
     # ax[0].set_ylim([min(0, 0.8*min_point), max_point*1.2])
-    plt.title('Lattice trapping frequency measurement')
+    plt.title('Lattice hold image')
     plt.savefig(result_path+'.png', bbox_inches='tight')
-    plt.savefig(result_path+'.svg', bbox_inches='tight')
     
     plt.clf()
     plt.close('all')
-    # plt.show()
+    plt.show()
+    
 
-def process_lattice_trap_freq_modulation_pmt(settings):
+def process_lattice_hold_image_pmt(settings):
     shot = settings['shot']
     x_key = settings['kwargs']['x_key']
     y_key = settings['kwargs']['y_key']
@@ -175,23 +184,20 @@ def process_lattice_trap_freq_modulation_pmt(settings):
         conductor_json_path = data_folder + '\\{}'.format(shot) + '.conductor.json'
         blue_pmt_path = data_folder + '\\{}'.format(shot) + '.blue_pmt.json'
         
-        f = open(conductor_json_path, 'r')
-        f1 = f.read()
-        f2 = json.loads(f1)
-        freq = f2['lattice.ModulationFrequency']
-            
         f = open(blue_pmt_path, 'r')
         f1 = f.read()
         f2 = json.loads(f1)
+            
         count = f2[count_key]
-        
-        data.append({'shot': shot, x_key: freq, y_key: count})
+        data.append({'shot': shot, y_key: count})
         return  data
     
     else:
+        data = []
         return data
 
-def plot_lattice_trap_freq_modulation_pmt(data, settings):
+def plot_lattice_hold_image_pmt(data, settings):
+
     units = settings['kwargs']['units']
     data_range = settings['kwargs']['data_range']
     x_label = settings['kwargs']['x_label']
@@ -211,46 +217,44 @@ def plot_lattice_trap_freq_modulation_pmt(data, settings):
     x_data = [i[x_key] for i in sorted_data if min(data_range) < i[y_key] < max(data_range) ]
     y_data = [i[y_key] for i in sorted_data if min(data_range) < i[y_key] < max(data_range)]
     
+    mean = np.mean(y_data)
+    mean = round(float(mean), 2)
+    std = np.std(y_data)
+    std = round(float(std), 2)
+    
     with open(saved_data_path, 'w') as file:
         file.write(json.dumps(sorted_data))
     
+    y_std = round(np.std(np.array(y_data)), 1)
+    y_mean = round(np.mean(np.array(y_data)), 1)
     x_data = process_units(x_data, units)
-    print(x_data, units)
     
     fig, ax = plt.subplots(1, 1)
     fig.set_size_inches(20, 8)
         
     ax.plot(x_data, y_data)
     ax.plot(x_data, y_data, 'ro')
-    
+    ax.text(0, max(y_data), 'mean = {}, std = {}'.format(y_mean, y_std))
     ax.set_ylabel(y_label)
-    ax.set_xlabel(x_label + ' ({})'.format(units))
+    ax.set_xlabel(x_label + ' [{}]'.format(units))
+    anchored_text = AnchoredText('mean = {} \n std = {}'.format(mean, std) , loc=2)
+    ax.add_artist(anchored_text)
     # max_point = max([max(l.get_ydata()) for l in ax.get_lines()])
     # min_point = min([min(l.get_ydata()) for l in ax.get_lines()])
     
     # ax[0].set_ylim([min(0, 0.8*min_point), max_point*1.2])
-    plt.title('Lattice trapping frequency measurement')
+    plt.title('Lattice hold image')
     plt.savefig(result_path+'.svg', bbox_inches='tight')
     
     plt.clf()
+    
+    fig, ax = plt.subplots(1, 1)
+    fig.set_size_inches(20, 8)
+    ax.hist(y_data, bins = int(len(y_data)/10))
+    plt.savefig(result_path+'-histogram.svg', bbox_inches='tight')
+    plt.clf()
     plt.close('all')
     # plt.show()
-    
-# def direct_plot():
-#     """copy this script to the result folder."""
-#     try:
-#         current_folder = os.getcwd()
-#         data_path = os.path.join(current_folder, 'processed_data.txt')
-        
-#         with open(data_path)
-    
-#     except:
-#         pass
-
-
-
-
-
 
 
 
